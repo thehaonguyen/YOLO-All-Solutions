@@ -1,3 +1,50 @@
+# Data files
+data/
+*.csv
+*.h5
+*.parquet
+*.zip
+*.tar.gz
+
+# Models and checkpoints
+models/
+checkpoints/
+*.pkl
+*.pth
+*.joblib
+*.pb
+
+# Python environments
+venv/
+.venv/
+env/
+__pycache__/
+*.py[cod]
+
+# IDEs
+.vscode/
+.idea/
+.ipynb_checkpoints/
+
+# Experiment tracking & logs
+logs/
+runs/
+*.log
+mlruns/  # For MLflow users
+wandb/   # For Weights & Biases users
+
+# Secrets
+.env
+keys/
+credentials.json
+
+
+
+
+
+
+
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
