@@ -8,7 +8,7 @@ assert cap.isOpened(), "Error reading video file"
 # Video writer
 w, h, fps = (int(cap.get(x)) for x in (cv2.CAP_PROP_FRAME_WIDTH, cv2.CAP_PROP_FRAME_HEIGHT, cv2.CAP_PROP_FPS))
 out = cv2.VideoWriter(
-    "analytics_output.mp4",
+    "I.Analytical_Graph/3.Bar_Plot/analytics_output.mp4",
     cv2.VideoWriter_fourcc(*"mp4v"),
     fps,
     (w*2, h),  # this is fixed
