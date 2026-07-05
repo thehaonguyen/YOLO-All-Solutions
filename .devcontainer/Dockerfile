@@ -1,29 +1,38 @@
-FROM mcr.microsoft.com/devcontainers/miniconda:1-3
+# Start with Ubuntu 22.04
+FROM ubuntu:22.04
 
-# Copy environment.yml (if found) to a temp location so we update the environment. Also
-# copy "noop.txt" so the COPY instruction does not fail if no environment.yml exists.
-COPY environment.yml* .devcontainer/noop.txt /tmp/conda-tmp/
-RUN if [ -f "/tmp/conda-tmp/environment.yml" ]; then umask 0002 && /opt/conda/bin/conda env update -n base -f /tmp/conda-tmp/environment.yml; fi \
-    && rm -rf /tmp/conda-tmp
+# Prevent interactive prompts during install
+ENV DEBIAN_FRONTEND=noninteractive
 
-RUN conda install -y python=3.11.5 pip \
-    && pip install --no-cache-dir \
-       ultralytics==8.4.81 \
-       shapely==2.1.2 \
-       lab>=0.5.12 \
-       torch==2.2.0 \
-       torchvision==0.17.0 \
-       numpy==1.26.4 \
-       pandas==2.2.2 \
-       opencv-python-headless \
-       matplotlib \
-       seaborn
+# Update and install system dependencies
+# Includes python3, pip, git, ffmpeg (needed for video processing), and CUDA libs
+RUN apt-get update && apt-get install -y \
+    python3 \
+    python3-pip \
+    python3-venv \
+    git \
+    ffmpeg \
+    libsm6 \
+    libxext6 \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
 
-# [Optional] Uncomment to install a different version of Python than the default
-# RUN conda install -y python=3.6 \
-#     && pip install --no-cache-dir pipx \
-#     && pipx reinstall-all
+# Set up a virtual environment (optional but recommended)
+# We will install packages directly to the system python for simplicity in devcontainer
+# but you can create a venv here if you prefer.
 
-# [Optional] Uncomment this section to install additional OS packages.
-# RUN apt-get update && export DEBIAN_FRONTEND=noninteractive \
-# && apt-get -y install --no-install-recommends <your-package-list-here>
+# Install Python dependencies
+# We copy requirements.txt first to leverage Docker cache
+COPY requirements.txt .
+
+# Upgrade pip and install requirements
+RUN pip3 install --no-cache-dir --upgrade pip && \
+    pip3 install --no-cache-dir -r requirements.txt
+
+# Set the working directory
+WORKDIR /workspace
+
+# Default command (Streamlit will be started by VS Code usually, but we set a default)
+CMD ["/bin/bash"]
