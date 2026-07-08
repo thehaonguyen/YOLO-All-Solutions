@@ -1,69 +1,129 @@
 import cv2
-import streamlit as st
+import math
 from ultralytics import solutions
-import os
 
-st.set_page_config(page_title="YOLO Distance Calculator", layout="wide")
-st.title("🛣️ YOLO Distance Estimation App")
+# Global variables to store tracked Object IDs instead of static pixels
+selected_box_ids = []
 
-# 1. Video Source Picker (Let's make a mock file or allow uploads)
-video_path = "II.Distance_Calculation/video.mp4"
-
-if not os.path.exists(video_path):
-    st.error(f"Video file not found at: {video_path}. Please update the path.")
-else:
-    # 2. UI Action Button
-    if st.button("Start Processing Video"):
+def mouse_callback(event, x, y, flags, param):
+    """
+    Mouse callback function to detect if a click falls inside any tracked object's bounding box.
+    """
+    global selected_box_ids
+    if event == cv2.EVENT_LBUTTONDOWN:
+        # Access the current frame's tracking data passed via param
+        current_boxes = param.get("boxes", [])
         
-        # Open the video source
-        cap = cv2.VideoCapture(video_path)
-        w, h, fps = (int(cap.get(x)) for x in (cv2.CAP_PROP_FRAME_WIDTH, cv2.CAP_PROP_FRAME_HEIGHT, cv2.CAP_PROP_FPS))
-        
-        # Setup Video Writer for output tracking saving
-        video_writer = cv2.VideoWriter("distance_output.avi", cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h))
-
-        # Initialize the Ultralytics distance calculation object
-        # CRITICAL FOR DOCKER/STREAMLIT: set show=False to avoid headless display errors
-        distancecalculator = solutions.DistanceCalculation(
-            model="yolo8n.pt",  
-            show=False,           
-        )
-
-        # Create an empty placeholder container in the Streamlit UI to dynamically stream frames
-        frame_placeholder = st.empty()
-        
-        # Progress bar
-        progress_bar = st.progress(0)
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        frame_count = 0
-
-        # 3. Processing loop
-        while cap.isOpened():
-            success, im0 = cap.read()
-
-            if not success:
-                st.write("Video processing complete.")
-                break
-
-            # Calculate tracking & distance
-            # NEW ULTRALYTICS API
-            results = distancecalculator.process(im0)
-            annotated_frame = results.plot_im
-
-            # Write to output file
-            video_writer.write(annotated_frame)
-
-            # Streamlit needs RGB format, but OpenCV reads in BGR
-            rgb_frame = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
-
-            # 4. Render the frame in real time to the web page UI
-            frame_placeholder.image(rgb_frame, channels="RGB", use_container_width=True)
+        for box in current_boxes:
+            # Get bounding box coordinates and track ID
+            # box.xyxy[0] contains [x1, y1, x2, y2]
+            x1, y1, x2, y2 = map(int, box.xyxy[0])
             
-            # Update Progress
-            frame_count += 1
-            progress_bar.progress(min(frame_count / total_frames, 1.0))
+            if box.id is not None:
+                track_id = int(box.id[0])
+                
+                # Check if the clicked (x, y) is inside this bounding box
+                if x1 <= x <= x2 and y1 <= y <= y2:
+                    if len(selected_box_ids) >= 2:
+                        selected_box_ids = [] # Reset selection if 2 objects are already selected
+                    
+                    if track_id not in selected_box_ids:
+                        selected_box_ids.append(track_id)
+                    break # Stop checking other boxes once a match is found
 
-        # Cleanup
-        cap.release()
-        video_writer.release()
-        st.success("Processed video saved successfully as 'distance_output.avi'!")
+# 1. Initialize video capture
+cap = cv2.VideoCapture("II.Distance_Calculation/video.mp4")
+assert cap.isOpened(), "Error reading video file"
+
+w, h, fps = (int(cap.get(x)) for x in (cv2.CAP_PROP_FRAME_WIDTH, cv2.CAP_PROP_FRAME_HEIGHT, cv2.CAP_PROP_FPS))
+
+# 2. Initialize video writer
+video_writer = cv2.VideoWriter("distance_output.avi", cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h))
+
+# 3. Initialize Distance Calculation object
+distancecalculator = solutions.DistanceCalculation(
+    model="model/yolov8n.pt",  
+    show=False,
+    classes = [0],
+    tracker="bytetrack.yaml",
+    conf=0.15,
+)
+
+# --- WINDOW CONFIGURATION & MOUSE BINDING ---
+win_name = "YOLO Object-Locked Distance Calculation"
+cv2.namedWindow(win_name, cv2.WINDOW_NORMAL)
+cv2.resizeWindow(win_name, 640, 640)
+
+# A dictionary shared with the mouse callback to pass dynamic tracking data
+mouse_param = {"boxes": []}
+cv2.setMouseCallback(win_name, mouse_callback, mouse_param)
+# --------------------------------------------
+
+# 4. Process video frames
+while cap.isOpened():
+    success, im0 = cap.read()
+
+    if not success:
+        print("Video frame is empty or processing is complete.")
+        break
+
+    # Process frame through YOLO distance calculation
+    results = distancecalculator(im0)
+    output_frame = results.plot_im.copy()
+
+    # Safely extract tracking boxes from the internal predictor model
+    current_boxes = []
+    if hasattr(distancecalculator.model, 'predictor') and distancecalculator.model.predictor.results:
+        current_boxes = distancecalculator.model.predictor.results[0].boxes
+        # Update shared parameters for the mouse click event
+        mouse_param["boxes"] = current_boxes
+
+    # Dictionary to store the center points of the selected IDs in the current frame
+    active_centers = {}
+
+    # Calculate center points for all tracked objects in this frame
+    for box in current_boxes:
+        if box.id is not None:
+            track_id = int(box.id[0])
+            if track_id in selected_box_ids:
+                x1, y1, x2, y2 = map(int, box.xyxy[0])
+                # Calculate the center (X, Y) of the bounding box
+                cx = (x1 + x2) // 2
+                cy = (y1 + y2) // 2
+                active_centers[track_id] = (cx, cy)
+
+    # --- DYNAMIC DISTANCE CALCULATION BETWEEN LOCKED OBJECTS ---
+    # Draw dots on the moving centers of selected objects
+    for track_id, center in active_centers.items():
+        cv2.circle(output_frame, center, 8, (0, 0, 255), -1) # Red tracking anchor dot
+
+    # If both selected objects are visible in the current frame, calculate and draw distance
+    if len(selected_box_ids) == 2:
+        id1, id2 = selected_box_ids[0], selected_box_ids[1]
+        
+        if id1 in active_centers and id2 in active_centers:
+            pt1, pt2 = active_centers[id1], active_centers[id2]
+            
+            # Draw dynamic line following the objects
+            cv2.line(output_frame, pt1, pt2, (0, 255, 0), 3)
+            
+            # Dynamic Euclidean distance calculation
+            pixel_distance = math.sqrt((pt2[0] - pt1[0])**2 + (pt2[1] - pt1[1])**2)
+            
+            # Display real-time updated distance text
+            mid_point = ((pt1[0] + pt2[0]) // 2, (pt1[1] + pt2[1]) // 2)
+            cv2.putText(output_frame, f"{pixel_distance:.1f} px", mid_point, 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2, cv2.LINE_AA)
+    # -----------------------------------------------------------
+
+    # Display the dynamic tracking output
+    cv2.imshow(win_name, output_frame)
+    video_writer.write(output_frame)  
+
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+# Release all resources
+cap.release()
+video_writer.release()
+cv2.destroyAllWindows()
