@@ -1,8 +1,5 @@
 *.avi
 *.mp4
-
-# Data files
-data/
 *.csv
 *.h5
 *.parquet

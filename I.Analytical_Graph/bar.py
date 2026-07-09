@@ -2,7 +2,7 @@ import cv2
 from ultralytics import solutions
 
 # 1. Initialize video capture
-cap = cv2.VideoCapture("I.Analytical_Graph/video.mp4")
+cap = cv2.VideoCapture("data/video.mp4")
 assert cap.isOpened(), "Error reading video file"
 
 # Get original video properties
